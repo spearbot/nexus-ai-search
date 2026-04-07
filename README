@@ -1,0 +1,16 @@
+# Nexus AI Search Engine
+
+An AI-powered research engine using:
+- Multi-query RAG pipeline
+- Google CSE for web retrieval
+- Ollama (local LLM)
+- FAISS vector database
+
+## Features
+- Query decomposition
+- Parallel web search
+- Semantic retrieval
+- Structured research reports
+
+## Tech Stack
+Python, LangChain, Streamlit, FAISS, Ollama
