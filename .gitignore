@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+*.pkl
+*.faiss
+*.bin
+*.safetensors
+*.log
+.cache/
+venv/
+env/
