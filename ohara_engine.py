@@ -1,14 +1,14 @@
 """
-nexus_engine.py
+ohara_engine.py
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Multi-Query RAG Pipeline:
 
-  1. decompose_query()  → Gemini rewrites query into 3 semantic variants
+  1. decompose_query()  → Ollama rewrites query into 3 semantic variants
   2. parallel_search()  → Google CSE for each variant, deduplicated
   3. scrape_sources()   → BeautifulSoup full-page extraction
   4. build_store()      → Chunk + embed → FAISS vector store
   5. retrieve()         → Multi-query retrieval + deduplication
-  6. synthesise()       → Gemini structured intelligence brief
+  6. synthesise()       → Ollama structured intelligence brief
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import json
 import re
 import requests
 import concurrent.futures
+import threading
 from typing import Any
 
 from langchain_community.chat_models import ChatOllama
@@ -29,14 +30,13 @@ from langchain_core.output_parsers import StrOutputParser
 from bs4 import BeautifulSoup
 
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _scrape(url: str, timeout: int = 8) -> str:
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Nexus-Research/1.0)"}
+        headers = {"User-Agent": "Mozilla/5.0 (Ohara-Research/1.0)"}
         r = requests.get(url, headers=headers, timeout=timeout)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
@@ -50,7 +50,18 @@ def _scrape(url: str, timeout: int = 8) -> str:
 
 
 def _clean_json(raw: str) -> str:
-    return re.sub(r"```json|```", "", raw).strip()
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    return raw.strip()
+
+
+def _make_document(text: str, source: str, title: str) -> Document:
+    return Document(
+        page_content=text,
+        metadata={"source": source, "title": title},
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -70,7 +81,7 @@ DECOMPOSE_PROMPT = ChatPromptTemplate.from_messages([
 
 SYNTHESIS_PROMPT = ChatPromptTemplate.from_messages([
     ("system",
-     "You are Nexus, an elite research intelligence system. "
+     "You are Ohara, an elite research intelligence system. "
      "Synthesise the provided source excerpts into a structured intelligence brief. "
      "Be precise, analytical, and cite evidence from the context. "
      "Return ONLY valid JSON — no markdown fences, no extra keys."),
@@ -98,34 +109,41 @@ Return a JSON object with EXACTLY these keys:
 # Engine
 # ─────────────────────────────────────────────────────────────────────────────
 
-class NexusEngine:
+class OharaEngine:
 
     def __init__(
         self,
         google_api_key: str,
         google_cse_id: str,
-        model="llama3",
+        model: str = "llama3",
     ):
         self.google_api_key = google_api_key
         self.cse_id = google_cse_id
+        self.model = model
+        self._url_lock = threading.Lock()
 
-    # ✅ Local LLM (Ollama)
         self.llm = ChatOllama(
             model=model,
             temperature=0.25,
-    )
+        )
 
-    # ✅ Local embeddings (no API)
         self.embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-
-        
-    )
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+        )
         self.splitter = RecursiveCharacterTextSplitter(
-        chunk_size=700,
-        chunk_overlap=100,
-        separators=["\n\n", "\n", ". ", " ", ""],
-    )
+            chunk_size=700,
+            chunk_overlap=100,
+            separators=["\n\n", "\n", ". ", " ", ""],
+        )
+
+    # ── Health Check ────────────────────────────────────────────────────────
+
+    def check_ollama(self) -> bool:
+        try:
+            resp = requests.get("http://localhost:11434/api/tags", timeout=5)
+            return resp.status_code == 200
+        except Exception:
+            return False
 
     # ── 1. Query Decomposition ────────────────────────────────────────────────
 
@@ -138,7 +156,6 @@ class NexusEngine:
                 return variants[:3]
         except Exception:
             pass
-        # Fallback: manual variants
         return [
             query,
             f"{query} — recent developments and research",
@@ -170,18 +187,18 @@ class NexusEngine:
             futures = {ex.submit(self._search_one, v, num_per_query): v for v in variants}
             for fut in concurrent.futures.as_completed(futures):
                 for src in fut.result():
-                    if src["url"] not in seen_urls:
-                        seen_urls.add(src["url"])
-                        all_sources.append(src)
+                    with self._url_lock:
+                        if src["url"] not in seen_urls:
+                            seen_urls.add(src["url"])
+                            all_sources.append(src)
 
-        return all_sources[:12]  # cap total
+        return all_sources[:12]
 
     # ── 3. Scrape Sources ─────────────────────────────────────────────────────
 
     def scrape_sources(self, sources: list[dict]) -> list[dict]:
         def _fetch(src: dict) -> dict:
             text = _scrape(src["url"])
-
             if not text or len(text) < 200:
                 text = f"{src.get('title','')} {src.get('snippet','')}"
             return {**src, "text": text}
@@ -204,29 +221,19 @@ class NexusEngine:
 
         if not docs:
             docs = [
-                Document(
-                    page_content=f"{s.get('title','')} {s.get('snippet','')}",
-                    metadata={"source": s.get("url",""), "title": s.get("title","")},
-        )
+                _make_document(
+                    f"{s.get('title','')} {s.get('snippet','')}",
+                    s.get("url", ""),
+                    s.get("title", ""),
+                )
                 for s in scraped if s.get("snippet") or s.get("title")
-    ]
+            ]
 
         if not docs:
             docs = [
-                Document(
-                    page_content=f"{s.get('title','')} {s.get('snippet','')}",
-                    metadata={"source": s.get("url",""), "title": s.get("title","")},
-        )
-        for s in scraped[:5]
-    ]
-        if not docs:
-            print("⚠️ No usable documents — injecting fallback")
-            docs = [
-                Document(
-                    page_content="Fallback content for embedding",
-                    metadata={"source": "none", "title": "fallback"},
-        )
-    ]
+                _make_document("Fallback content for embedding", "none", "fallback"),
+            ]
+
         store = FAISS.from_documents(docs, self.embeddings)
         return store, len(docs)
 
@@ -244,7 +251,7 @@ class NexusEngine:
                     seen.add(key)
                     merged.append(doc)
 
-        return merged[:20]  # cap context window
+        return merged[:20]
 
     # ── 6. Synthesise Brief ───────────────────────────────────────────────────
 
@@ -255,6 +262,18 @@ class NexusEngine:
         chunks: list[Document],
         sources: list[dict],
     ) -> dict[str, Any]:
+        if not chunks:
+            return {
+                "overview": "No retrievable content was found for this query. "
+                            "The web search did not return any usable sources.",
+                "key_findings": "<ul><li>No sources could be retrieved or scraped.</li></ul>",
+                "emerging_trends": "<ul><li>—</li></ul>",
+                "research_gaps": "<ul><li>—</li></ul>",
+                "confidence": 0,
+                "coverage": 0,
+                "gap_score": 100,
+            }
+
         context = "\n\n---\n\n".join(
             f"[Source: {d.metadata.get('title','?')}]\n{d.page_content}"
             for d in chunks

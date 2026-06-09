@@ -1,6 +1,6 @@
 @echo off
 echo.
-echo   NEXUS Research Cortex
+echo   OHARA Research Cortex
 echo   ----------------------
 
 python --version >nul 2>&1
@@ -20,6 +20,6 @@ if not exist .env (
 echo   Installing dependencies...
 pip install -r requirements.txt -q
 
-echo   Launching Nexus...
+echo   Launching Ohara...
 streamlit run app.py
 pause

@@ -1,8 +1,8 @@
 #!/bin/bash
-# ── Nexus Research Cortex · Quick Start ──────────────────────────────────────
+# ── Ohara Research Cortex · Quick Start ──────────────────────────────────────
 
 echo ""
-echo "  ⬡  NEXUS Research Cortex"
+echo "  ⬡  OHARA Research Cortex"
 echo "  ─────────────────────────"
 
 if ! command -v python3 &>/dev/null; then
@@ -23,6 +23,6 @@ fi
 echo "  📦  Installing dependencies..."
 pip install -r requirements.txt -q
 
-echo "  🚀  Launching Nexus..."
+echo "  🚀  Launching Ohara..."
 echo ""
 streamlit run app.py

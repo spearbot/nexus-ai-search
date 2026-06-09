@@ -1,14 +1,14 @@
+import html
 import streamlit as st
 import os
-import time
 from dotenv import load_dotenv
-from nexus_engine import NexusEngine
+from ohara_engine import OharaEngine
 
 load_dotenv()
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Nexus · Research Cortex",
+    page_title="Ohara · Research Cortex",
     page_icon="⬡",
     layout="centered",
     initial_sidebar_state="collapsed",
@@ -440,10 +440,11 @@ run = st.button("⬡  Initialise Research Pipeline")
 def get_engine():
     gak = os.getenv("GOOGLE_API_KEY")
     cse = os.getenv("GOOGLE_CSE_ID")
+    model = os.getenv("OLLAMA_MODEL", "llama3")
     if not all([gak, cse]):
-        st.error("⚠️  Set GOOGLE_API_KEY, GOOGLE_CSE_ID, GEMINI_API_KEY in your .env file.")
+        st.error("⚠️  Set GOOGLE_API_KEY and GOOGLE_CSE_ID in your .env file.")
         st.stop()
-    return NexusEngine(google_api_key=gak, google_cse_id=cse)
+    return OharaEngine(google_api_key=gak, google_cse_id=cse, model=model)
 
 
 # ── Pipeline UI runner ────────────────────────────────────────────────────────
@@ -451,26 +452,30 @@ STEPS = [
     ("decompose",  "Query Decomposition",     "Generating 3 semantic query variants"),
     ("search",     "Parallel Web Retrieval",  "Fetching sources across all query axes"),
     ("scrape",     "Content Extraction",      "Parsing & cleaning raw page content"),
-    ("embed",      "Vector Embedding",        "Chunking + embedding via Gemini"),
+    ("embed",      "Vector Embedding",        "Chunking + embedding via HuggingFace"),
     ("retrieve",   "Semantic Retrieval",      "Scoring & deduplicating top-k chunks"),
     ("synthesise", "LLM Synthesis",           "Generating structured intelligence brief"),
 ]
 
-def render_pipeline(done_keys: list[str], active_key: str | None = None):
+def render_pipeline(done_keys: list[str], active_key: str | None = None, error_key: str | None = None):
     rows = ""
     for key, label, detail in STEPS:
-        if key in done_keys:
+        if key == error_key:
+            cls, icon = "error", "✗"
+        elif key in done_keys:
             cls, icon = "done", "✓"
         elif key == active_key:
             cls, icon = "active", "▶"
         else:
             cls, icon = "", "○"
+        escaped_label = html.escape(label)
+        escaped_detail = html.escape(detail)
         rows += f"""
         <div class="pipeline-step {cls}">
             <span class="ps-icon">{icon}</span>
             <div class="ps-label">
-                {label}
-                <div class="ps-detail">{detail}</div>
+                {escaped_label}
+                <div class="ps-detail">{escaped_detail}</div>
             </div>
         </div>"""
     return f"""
@@ -480,20 +485,36 @@ def render_pipeline(done_keys: list[str], active_key: str | None = None):
     </div>"""
 
 
+def run_step(step_key: str, step_label: str, func, pipeline_slot, done, *args, **kwargs):
+    pipeline_slot.markdown(render_pipeline(done, step_key), unsafe_allow_html=True)
+    try:
+        result = func(*args, **kwargs)
+        done.append(step_key)
+        return result
+    except Exception as e:
+        pipeline_slot.markdown(render_pipeline(done, error_key=step_key), unsafe_allow_html=True)
+        st.error(f"**{step_label}** failed: {e}")
+        st.stop()
+
+
 if run and query.strip():
     engine = get_engine()
+
+    if not engine.check_ollama():
+        st.error("⚠️  Ollama is not running. Start it with `ollama run llama3` (or your model) and try again.")
+        st.stop()
+
     pipeline_slot = st.empty()
     queries_slot  = st.empty()
     done: list[str] = []
 
+    escaped_query = html.escape(query.strip())
+
     # Step 1 — decompose
-    pipeline_slot.markdown(render_pipeline(done, "decompose"), unsafe_allow_html=True)
-    variants = engine.decompose_query(query.strip(), focus)
-    done.append("decompose")
-    pipeline_slot.markdown(render_pipeline(done, "search"), unsafe_allow_html=True)
+    variants = run_step("decompose", "Query Decomposition", engine.decompose_query, pipeline_slot, done, query.strip(), focus)
 
     qv_html = "".join(
-        f'<div class="qv-item"><span class="qv-num">Q{i+1}</span>{v}</div>'
+        f'<div class="qv-item"><span class="qv-num">Q{i+1}</span>{html.escape(v)}</div>'
         for i, v in enumerate(variants)
     )
     queries_slot.markdown(
@@ -502,31 +523,23 @@ if run and query.strip():
     )
 
     # Step 2 — search
-    all_sources = engine.parallel_search(variants, num_sources)
-    done.append("search")
-    pipeline_slot.markdown(render_pipeline(done, "scrape"), unsafe_allow_html=True)
+    all_sources = run_step("search", "Parallel Web Retrieval", engine.parallel_search, pipeline_slot, done, variants, num_sources)
 
     # Step 3 — scrape
-    scraped = engine.scrape_sources(all_sources)
-    done.append("scrape")
-    pipeline_slot.markdown(render_pipeline(done, "embed"), unsafe_allow_html=True)
+    scraped = run_step("scrape", "Content Extraction", engine.scrape_sources, pipeline_slot, done, all_sources)
 
     # Step 4 — embed + vectorstore
-    store, chunk_count = engine.build_store(scraped)
-    done.append("embed")
-    pipeline_slot.markdown(render_pipeline(done, "retrieve"), unsafe_allow_html=True)
+    store, chunk_count = run_step("embed", "Vector Embedding", engine.build_store, pipeline_slot, done, scraped)
 
     # Step 5 — retrieve
-    chunks = engine.retrieve(store, variants)
-    done.append("retrieve")
-    pipeline_slot.markdown(render_pipeline(done, "synthesise"), unsafe_allow_html=True)
+    chunks = run_step("retrieve", "Semantic Retrieval", engine.retrieve, pipeline_slot, done, store, variants)
 
     # Step 6 — synthesise
-    result = engine.synthesise(query.strip(), focus, chunks, all_sources)
-    done.append("synthesise")
+    result = run_step("synthesise", "LLM Synthesis", engine.synthesise, pipeline_slot, done, query.strip(), focus, chunks, all_sources)
+
     pipeline_slot.markdown(render_pipeline(done), unsafe_allow_html=True)
 
-    result["query"]       = query.strip()
+    result["query"]       = escaped_query
     result["variants"]    = variants
     result["sources"]     = all_sources
     result["chunk_count"] = chunk_count
@@ -545,30 +558,38 @@ for idx, r in enumerate(st.session_state.history):
     conf_color = "green" if conf >= 75 else "amber" if conf >= 55 else "red"
 
     src_chips = "".join(
-        f'<a class="src-chip" href="{s["url"]}" target="_blank">'
-        f'<span class="src-num">{i+1}</span>{s["title"][:36]}{"…" if len(s["title"])>36 else ""}'
+        f'<a class="src-chip" href="{html.escape(s["url"])}" target="_blank">'
+        f'<span class="src-num">{i+1}</span>{html.escape(s["title"][:36])}{"…" if len(s["title"])>36 else ""}'
         f'</a>'
         for i, s in enumerate(r.get("sources", []))
     )
 
+    overview = r.get("overview", "")
+    key_findings = r.get("key_findings", "")
+    emerging_trends = r.get("emerging_trends", "")
+    research_gaps = r.get("research_gaps", "")
+    query_display = r.get("query", "")
+    chunk_count = r.get("chunk_count", 0)
+    sources_list = r.get("sources", [])
+
     st.markdown(f"""
     <div class="nx-card">
         <div class="nx-card-header">
-            <div class="nx-card-topic">{r["query"]}</div>
+            <div class="nx-card-topic">{query_display}</div>
             <div class="nx-badge {conf_color}">CONF {conf}%</div>
         </div>
 
         <div class="nx-sec">Intelligence Overview</div>
-        <div class="nx-body">{r.get("overview","")}</div>
+        <div class="nx-body">{overview}</div>
 
         <div class="nx-sec">Key Intelligence Points</div>
-        <div class="nx-body">{r.get("key_findings","")}</div>
+        <div class="nx-body">{key_findings}</div>
 
         <div class="nx-sec">Emerging Signals</div>
-        <div class="nx-body">{r.get("emerging_trends","")}</div>
+        <div class="nx-body">{emerging_trends}</div>
 
         <div class="nx-sec">Research Gaps Detected</div>
-        <div class="nx-body">{r.get("research_gaps","")}</div>
+        <div class="nx-body">{research_gaps}</div>
 
         <div class="nx-sec">Signal Quality</div>
         <div class="conf-row">
@@ -587,7 +608,7 @@ for idx, r in enumerate(st.session_state.history):
             <span class="conf-val">{gap}%</span>
         </div>
 
-        <div class="nx-sec">Sources · {len(r.get("sources",[]))} indexed · <span style="color:var(--accent)">{r.get("chunk_count",0)}</span> chunks embedded</div>
+        <div class="nx-sec">Sources · {len(sources_list)} indexed · <span style="color:var(--accent)">{chunk_count}</span> chunks embedded</div>
         <div class="src-grid">{src_chips}</div>
     </div>
     """, unsafe_allow_html=True)
@@ -600,7 +621,7 @@ if not st.session_state.history:
     st.markdown("""
     <div class="empty-state">
         <div class="empty-hex">⬡</div>
-        <div class="empty-label">Nexus is standing by</div>
+        <div class="empty-label">Ohara is standing by</div>
         <div class="empty-hint">Enter a query above to initialise the research pipeline</div>
     </div>
     """, unsafe_allow_html=True)

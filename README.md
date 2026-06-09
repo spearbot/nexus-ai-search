@@ -1,14 +1,12 @@
-# ⬡ Nexus · Intelligent Research Cortex
+# ⬡ Ohara · Research Engine
 
-> An AI-powered **multi-query research engine** that performs deep web retrieval and generates structured intelligence briefs — powered by **LangChain**, **Ollama (local LLMs)**, **FAISS**, and **Streamlit**.
+> AI-powered **multi-query research engine** that performs deep web retrieval and generates structured intelligence briefs — powered by **LangChain**, **Ollama (local LLMs)**, **FAISS**, and **Streamlit**.
 
-Nexus doesn’t just search — it **thinks like a research analyst**.
-
-It decomposes your query into multiple semantic angles, retrieves information across the web, and synthesizes a structured report with insights, trends, and research gaps.
+Ohara decomposes your query into multiple semantic search angles, retrieves information from across the web, and synthesizes a structured report with findings, trends, and research gaps.
 
 ---
 
-# 🧠 Pipeline Architecture
+## Pipeline Architecture
 
 ```
 User Query
@@ -26,7 +24,7 @@ User Query
     Scrapes and cleans page content (multi-threaded)
     │
     ▼
-④ Vector Embedding (Local - HuggingFace)
+④ Vector Embedding (Local — HuggingFace)
     Chunks text → embeds → builds FAISS index
     │
     ▼
@@ -34,7 +32,7 @@ User Query
     Retrieves top-k chunks across queries, merges unique results
     │
     ▼
-⑥ LLM Synthesis (Ollama - Llama3)
+⑥ LLM Synthesis (Ollama)
     Generates structured intelligence brief
     │
     ▼
@@ -45,89 +43,73 @@ Intelligence Brief
 
 ---
 
-# 🚀 Quick Start
+## Quick Start
 
-## 1. Install Ollama
+### 1. Install Ollama
 
-👉 [https://ollama.com](https://ollama.com)
+<https://ollama.com>
 
----
-
-## 2. Pull a model
+### 2. Pull a model
 
 ```bash
 ollama pull llama3
 ```
 
----
-
-## 3. Run the project
-
-### Mac / Linux
+### 3. Set up environment
 
 ```bash
-unzip nexus.zip && cd nexus
-bash run.sh
+cd nexus-ai-search
+cp .env.example .env
+# Edit .env with your Google API key and CSE ID
 ```
 
-### Windows
-
-Double-click:
-
-```bash
-run.bat
-```
-
----
-
-## 4. Start Ollama (important)
+### 4. Start Ollama
 
 ```bash
 ollama run llama3
 ```
 
----
+### 5. Run the app
 
-## 5. Open app
-
-```
-http://localhost:8501
+```bash
+bash run.sh
 ```
 
----
-
-# 🔑 Environment Variables
-
-Only **Google Search API** is required now:
-
-```env
-GOOGLE_API_KEY=your_key
-GOOGLE_CSE_ID=your_id
-```
-
-👉 No LLM API keys needed (runs locally)
+Then open **http://localhost:8501**
 
 ---
 
-# ⚡ What Makes Nexus Different
+## Environment Variables
 
-| Feature        | Basic RAG    | Nexus                         |
-| -------------- | ------------ | ----------------------------- |
-| Query strategy | Single query | Multi-query decomposition     |
-| Retrieval      | Sequential   | Parallel search               |
-| Deduplication  | None         | URL + semantic dedup          |
-| LLM            | API-based    | Local (Ollama)                |
-| Output         | Plain text   | Structured intelligence brief |
-| Insights       | None         | Trends + gaps + scoring       |
+| Variable         | Required | Default    | Description                        |
+|------------------|----------|------------|------------------------------------|
+| `GOOGLE_API_KEY` | Yes      | —          | Google Custom Search API key       |
+| `GOOGLE_CSE_ID`  | Yes      | —          | Google Custom Search Engine ID     |
+| `OLLAMA_MODEL`   | No       | `llama3`   | Ollama model name                  |
+
+No LLM API keys needed — everything runs locally via Ollama.
 
 ---
 
-# 🏗️ Project Structure
+## What Makes Ohara Different
+
+| Feature        | Basic RAG    | Ohara                          |
+|----------------|--------------|--------------------------------|
+| Query strategy | Single query | Multi-query decomposition      |
+| Retrieval      | Sequential   | Parallel search                |
+| Deduplication  | None         | URL + content dedup            |
+| LLM            | API-based    | Local (Ollama)                 |
+| Output         | Plain text   | Structured intelligence brief  |
+| Error handling | Crash on fail | Per-step recovery + UI alerts  |
+
+---
+
+## Project Structure
 
 ```
-nexus/
-├── app.py            # Streamlit UI + pipeline visualisation
-├── nexus_engine.py   # Core multi-query RAG engine
+ohara/
+├── app.py             # Streamlit UI + pipeline visualisation
+├── ohara_engine.py    # Core multi-query RAG engine
 ├── requirements.txt
 ├── .env.example
 ├── run.sh
@@ -137,10 +119,10 @@ nexus/
 
 ---
 
-# 🛠️ Tech Stack
+## Tech Stack
 
 | Layer         | Tool                      |
-| ------------- | ------------------------- |
+|---------------|---------------------------|
 | UI            | Streamlit                 |
 | LLM           | Ollama (Llama3 / Mistral) |
 | Embeddings    | HuggingFace (local)       |
@@ -152,47 +134,39 @@ nexus/
 
 ---
 
-# 🧠 Key Features
+## Key Features
 
-* 🔍 Multi-query search for broader coverage
-* ⚡ Parallel web retrieval
-* 🧹 Smart content cleaning & chunking
-* 🧠 Local LLM reasoning (no API limits)
-* 📊 Structured research output
-* 🧪 Research gap detection
-* 🎯 Confidence & coverage scoring
-
----
-
-# ⚠️ Limitations
-
-* Web scraping may fail on some sites (anti-bot protection)
-* Local models are slower than cloud APIs
-* Quality depends on retrieved content
+- **Multi-query search** — decomposes queries into 3 semantic variants for broader coverage
+- **Parallel retrieval** — fetches sources concurrently across all query axes
+- **Smart content cleaning** — strips boilerplate, chunks intelligently
+- **Local LLM reasoning** — no API limits or costs (Ollama)
+- **Per-step error handling** — pipeline shows which step failed with a clear message
+- **Ollama health check** — verifies Ollama is running before starting the pipeline
+- **Configurable model** — set `OLLAMA_MODEL` in `.env` (defaults to `llama3`)
+- **Structured output** — overview, findings, trends, research gaps, and quality scores
+- **Session history** — previous results remain visible during the session
 
 ---
 
-# 🚀 Future Improvements
+## Limitations
 
-* Better ranking / reranking (BM25 / hybrid search)
-* Streaming responses (ChatGPT-style)
-* PDF & file upload support
-* Caching layer (Redis)
-* Deployment (Docker + cloud)
-
----
-
-# 🧠 Inspiration
-
-Inspired by systems like:
-
-* Perplexity AI
-* OpenAI research workflows
+- Web scraping may fail on some sites (anti-bot protection)
+- Local models are slower than cloud APIs
+- Quality depends on retrieved content
+- History is ephemeral (lost on page refresh)
 
 ---
 
-# 👨‍💻 Author
+## Future Improvements
 
-Built by **Kartik**
-AI/ML student building real-world systems 🚀
+- Better ranking / reranking (BM25 / hybrid search)
+- Streaming responses (ChatGPT-style)
+- PDF & file upload support
+- Caching layer (Redis)
+- Deployment (Docker + cloud)
 
+---
+
+## Author
+
+Built by **Kartik** — AI/ML student building real-world systems
